@@ -107,6 +107,29 @@ def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = 
     dashboard_path.write_text(dashboard_html)
     print(f"[digest] dashboard written to {dashboard_path}")
 
+    # Also write queue.json for the auto-poster. Apply the same @<FirstName> prefix
+    # logic that the dashboard uses so what's posted matches what's previewed.
+    import json as _json
+    queue = []
+    for item, draft in drafts:
+        first_name = item.author.split()[0] if item.author else ""
+        clean = draft
+        if clean.startswith(f"@{first_name} "):
+            clean = clean[len(f"@{first_name} "):]
+        elif first_name and clean.startswith(f"@{first_name}"):
+            clean = clean[len(f"@{first_name}"):].lstrip()
+        final_reply = (f"@{first_name} " if first_name else "") + clean
+        queue.append({
+            "thread_url": item.thread_url,
+            "reply": final_reply,
+            "author": item.author,
+            "subject": item.subject,
+            "type": item.notification_type,
+        })
+    queue_path = docs_dir / "queue.json"
+    queue_path.write_text(_json.dumps(queue, indent=2))
+    print(f"[digest] queue written to {queue_path} ({len(queue)} items)")
+
     if dry_run:
         sys.stdout.write(html_body)
         sys.stdout.write("\n")
