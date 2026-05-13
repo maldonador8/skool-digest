@@ -27,6 +27,16 @@ SKOOL_THREAD_URL_RE = re.compile(r"https?://(?:www\.)?skool\.com/[^\s\"'<>]+")
 SKOOL_REDIRECT_URL_RE = re.compile(r"https?://link\.skool\.com/[^\s\"'<>]+")
 FROM_NAME_RE = re.compile(r'^"?([^"<]+?)"?\s*<')
 BATCH_SUBJECT_RE = re.compile(r"\b\d+\s+new\s+notifications?\b", re.IGNORECASE)
+DIGEST_SUBJECT_RE = re.compile(r"\b(daily|weekly)\s+digest\b", re.IGNORECASE)
+EVENT_SUBJECT_RE = re.compile(r"\bevent\b.*\bhappening|happening\s+tomorrow|event\s+reminder", re.IGNORECASE)
+COMMUNITY_FALLBACK_URL = "https://www.skool.com/ai-automation-society-plus"
+
+# Skool boilerplate links that appear in every digest email and aren't posts.
+NON_POST_ANCHOR_TEXT = {
+    "read more", "weekly", "monthly", "never",
+    "change notification settings", "start your own",
+    "view event", "add to calendar", "view group",
+}
 
 # Pattern used to split batch digests on each "View post|comment|group" CTA.
 # Skool puts these as anchor text at the end of every individual notification block.
@@ -210,6 +220,58 @@ def _collapse(s: str, limit: int = 2000) -> str:
     return s
 
 
+def _parse_daily_digest(payload: dict) -> list[SkoolItem]:
+    """Crack Skool's own 'Daily digest for ...' email into one item per top-10 post.
+
+    Each post is a hyperlink whose anchor text is "Author\\n...\\nTitle\\n...\\nExcerpt"
+    and whose href is a per-post Skool redirect URL. We extract all of them.
+    """
+    html_body = payload.get("html", "") or ""
+    if not html_body:
+        return []
+
+    soup = BeautifulSoup(html_body, "html.parser")
+    items: list[SkoolItem] = []
+    seen_titles: set[str] = set()
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "skool" not in href.lower():
+            continue
+        text = (a.get_text() or "").strip()
+        if not text:
+            continue
+        # Skip boilerplate footer / nav links
+        if any(text.lower().startswith(s) for s in NON_POST_ANCHOR_TEXT):
+            continue
+        # Each per-post anchor has text shaped like "Author\n...\nTitle\n...\nExcerpt"
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        if len(lines) < 2:
+            continue
+        author = lines[0]
+        title = lines[1]
+        excerpt = " ".join(lines[2:])[:1200] if len(lines) > 2 else ""
+        # Skip dupes (same digest can have repeats)
+        key = (author, title)
+        if key in seen_titles:
+            continue
+        seen_titles.add(key)
+        # Reasonable sanity: author should look like a person, title should have content
+        if len(author) > 60 or len(title) < 3:
+            continue
+        items.append(SkoolItem(
+            notification_type="top_post",
+            author=author,
+            subject=title,
+            body=_strip_chrome(_collapse(excerpt, limit=1200)) or title,
+            thread_url=href,
+            received_at=payload.get("date", ""),
+            message_id=f"{payload.get('id','')}#{title[:40]}",
+            raw_snippet=payload.get("snippet", "") or "",
+        ))
+    return items
+
+
 def _parse_batch(payload: dict) -> list[SkoolItem]:
     """Split a 'X new notifications' email into one SkoolItem per inner item."""
     html_body = payload.get("html", "") or ""
@@ -268,7 +330,15 @@ def parse(payload: dict) -> list[SkoolItem]:
     if "skool.com" not in from_header.lower() and "skool" not in subject.lower():
         return []
 
-    # Batch digest: split into multiple items
+    # Event reminder emails (e.g. "1 event happening tomorrow") — skip entirely
+    if EVENT_SUBJECT_RE.search(subject):
+        return []
+
+    # Skool's own daily/weekly digest — crack into one item per top-10 post
+    if DIGEST_SUBJECT_RE.search(subject):
+        return _parse_daily_digest(payload)
+
+    # "X new notifications since Y" batch digest — split into per-event items
     if BATCH_SUBJECT_RE.search(subject):
         return _parse_batch(payload)
 

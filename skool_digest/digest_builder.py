@@ -22,11 +22,12 @@ import requests
 from .email_parser import SkoolItem
 
 TYPE_BADGE = {
-    "post":    ("NEW POST",      "#2d7a2d"),
-    "comment": ("COMMENT",       "#1e7ab8"),
-    "reply":   ("REPLY TO YOU",  "#9b59b6"),
-    "mention": ("@MENTION",      "#c79a2b"),
-    "unknown": ("UPDATE",        "#888"),
+    "top_post": ("TRENDING",      "#d4af37"),  # gold — Skool's curated top 10 (ranking goldmine)
+    "post":     ("NEW POST",      "#2d7a2d"),
+    "comment":  ("COMMENT",       "#1e7ab8"),
+    "reply":    ("REPLY TO YOU",  "#9b59b6"),
+    "mention":  ("@MENTION",      "#c79a2b"),
+    "unknown":  ("UPDATE",        "#888"),
 }
 
 
@@ -60,17 +61,33 @@ def _empty_state() -> str:
 </div>"""
 
 
+MAX_CARDS = 30  # keep email scannable; on a backlog run we cap and show "+N more"
+
+
 def render_html(drafts: list[tuple[SkoolItem, str]], community: str = "AI Automation Society Plus") -> str:
     today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
+    total = len(drafts)
     if not drafts:
         cards = _empty_state()
+        truncated = 0
     else:
-        # Sort: replies/mentions first (most actionable), then comments, then posts.
-        priority = {"reply": 0, "mention": 1, "comment": 2, "post": 3, "unknown": 4}
+        # Sort: direct conversation first (reply/mention/comment) — never truncate these.
+        # Then ranking-leverage top_post items, then random new posts, then unknown.
+        priority = {"reply": 0, "mention": 1, "comment": 2, "top_post": 3, "post": 4, "unknown": 5}
         ordered = sorted(drafts, key=lambda x: priority.get(x[0].notification_type, 9))
+        truncated = max(0, len(ordered) - MAX_CARDS)
+        ordered = ordered[:MAX_CARDS]
         cards = "".join(_card(item, draft) for item, draft in ordered)
+        if truncated:
+            cards += (
+                f"<div style='background:#fff;border:1px dashed #ddd;border-radius:8px;"
+                f"padding:18px;margin:14px 0;text-align:center;color:#666;font-size:13px;'>"
+                f"+{truncated} more older trending posts not shown. "
+                f"Run with a shorter --days window to focus, or open Skool directly."
+                f"</div>"
+            )
 
-    count = len(drafts)
+    count = total
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Skool Morning Digest</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:760px;margin:0 auto;padding:24px;color:#222;background:#f6f7f9;">
