@@ -9,7 +9,13 @@ name: skool_digest_daily
 on:
   schedule:
     - cron: '0 11 * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Lookback window in days (default 1; use 30 to catch up on backlog)'
+        required: false
+        default: '1'
+        type: string
 
 jobs:
   digest:
@@ -23,6 +29,7 @@ jobs:
       DIGEST_RECIPIENT:  ${{ secrets.DIGEST_RECIPIENT }}
       FROM_EMAIL:        ${{ secrets.FROM_EMAIL }}
       FROM_NAME:         ${{ secrets.FROM_NAME }}
+      DIGEST_DAYS:       ${{ inputs.days || '1' }}
 
     steps:
       - uses: actions/checkout@v4

@@ -31,6 +31,11 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 DEFAULT_QUERY = "label:Skool newer_than:1d"
 
 
+def build_query(days: int = 1) -> str:
+    """Build a Gmail query for the Skool label over the last N days."""
+    return f"label:Skool newer_than:{int(days)}d"
+
+
 def _credentials_from_env() -> Credentials | None:
     """Load OAuth credentials from GMAIL_TOKEN_B64 env (CI path)."""
     b64 = os.environ.get("GMAIL_TOKEN_B64")

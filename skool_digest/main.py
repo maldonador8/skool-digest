@@ -15,7 +15,7 @@ import sys
 from email import policy
 from pathlib import Path
 
-from .gmail_fetch import fetch_messages, extract_payload
+from .gmail_fetch import fetch_messages, extract_payload, build_query
 from .email_parser import parse_all, SkoolItem
 from .ai_drafter import draft_all
 from .digest_builder import render_html, send_via_sendgrid
@@ -60,15 +60,17 @@ def _payload_from_eml(p: Path) -> dict:
     }
 
 
-def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = None) -> int:
+def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = None,
+        days: int = 1) -> int:
     # Pull payloads — either from Gmail or from local .eml fixtures
     if fixtures_dir is not None:
         eml_files = sorted(fixtures_dir.glob("*.eml"))
         print(f"[digest] loading {len(eml_files)} fixtures from {fixtures_dir}")
         payloads = [_payload_from_eml(p) for p in eml_files]
     else:
-        print("[digest] fetching from Gmail …")
-        msgs = fetch_messages()
+        query = build_query(days=days)
+        print(f"[digest] fetching from Gmail (last {days}d, query={query!r})")
+        msgs = fetch_messages(query=query, max_results=500 if days > 7 else 100)
         payloads = [extract_payload(m) for m in msgs]
         print(f"[digest] fetched {len(payloads)} messages")
 
@@ -101,6 +103,8 @@ def _cli() -> int:
     parser.add_argument("--no-ai", action="store_true", help="Skip AI drafting (parser-only mode)")
     parser.add_argument("--from-fixtures", type=Path, default=None,
                         help="Read .eml files from this dir instead of Gmail")
+    parser.add_argument("--days", type=int, default=None,
+                        help="Lookback window in days (default: 1, or DIGEST_DAYS env var)")
     args = parser.parse_args()
 
     # Load .env (parent dir, then agent root, then global Projects/.env)
@@ -108,10 +112,19 @@ def _cli() -> int:
     for env_path in (here / ".env", here.parent / ".env", here.parent.parent / ".env"):
         _load_env_file(env_path)
 
+    # Resolve days: CLI flag > env var > default 1
+    days = args.days
+    if days is None:
+        try:
+            days = int(os.environ.get("DIGEST_DAYS", "1"))
+        except ValueError:
+            days = 1
+
     return run(
         dry_run=args.dry_run,
         no_ai=args.no_ai,
         fixtures_dir=args.from_fixtures,
+        days=days,
     )
 
 

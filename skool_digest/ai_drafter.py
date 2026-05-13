@@ -43,7 +43,9 @@ CRITICAL — NEVER ask a question. Not on posts, not on mentions, not on replies
 
 If your draft contains a "?", rewrite it before output.
 
-Output: just the reply text. No preamble, no quotation marks, no signoff. No "Rafael:" prefix."""
+ALWAYS start the reply with "@<author's first name>" followed by a space, then the reply body. Example: if the author is "Nate Herk", start with "@Nate ". This tags them in the Skool thread. Do not use their last name in the @. Do not use multiple @s. Just the first name.
+
+Output: just the reply text (starting with "@FirstName "). No preamble, no quotation marks, no signoff. No "Rafael:" prefix."""
 
 
 def _client() -> anthropic.Anthropic:
