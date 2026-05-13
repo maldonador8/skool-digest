@@ -77,14 +77,26 @@ def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = 
     items = parse_all(payloads)
     print(f"[digest] parsed {len(items)} actionable Skool items")
 
+    # Cap items before drafting to avoid burning API tokens on cards that won't render.
+    # Priority order matches digest_builder.render_html so direct convo never gets trimmed.
+    from .digest_builder import MAX_CARDS
+    priority = {"reply": 0, "mention": 1, "comment": 2, "top_post": 3, "post": 4, "unknown": 5}
+    items_sorted = sorted(items, key=lambda it: priority.get(it.notification_type, 9))
+    items_to_draft = items_sorted[:MAX_CARDS]
+    items_overflow = items_sorted[MAX_CARDS:]
+    if items_overflow:
+        print(f"[digest] capping at {MAX_CARDS} (dropping {len(items_overflow)} older items from draft)")
+
     # Draft replies (or skip with --no-ai for fast parser-only debugging)
     if no_ai:
-        drafts = [(it, "(--no-ai: no draft generated)") for it in items]
+        drafts = [(it, "(--no-ai: no draft generated)") for it in items_to_draft]
     else:
         print("[digest] drafting replies with Claude Haiku …")
-        drafts = draft_all(items)
+        drafts = draft_all(items_to_draft)
 
-    html_body = render_html(drafts)
+    # Preserve overflow as "draftless" entries so the +N footer in render_html is accurate
+    drafts_full = drafts + [(it, "") for it in items_overflow]
+    html_body = render_html(drafts_full)
 
     if dry_run:
         sys.stdout.write(html_body)
