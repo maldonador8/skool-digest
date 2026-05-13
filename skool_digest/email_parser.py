@@ -17,9 +17,11 @@ the plain-text body so nothing is silently dropped.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, asdict
 from typing import Iterable, Optional
 
+import requests
 from bs4 import BeautifulSoup
 
 
@@ -363,7 +365,55 @@ def parse(payload: dict) -> list[SkoolItem]:
     )]
 
 
-def parse_all(payloads: Iterable[dict]) -> list[SkoolItem]:
+def _resolve_skool_url(url: str, timeout: float = 4.0) -> str:
+    """Follow link.skool.com redirects to capture the canonical post URL.
+
+    Skool's tracking links bounce to the community '/about' page when opened
+    outside the original email context, so we resolve them server-side during
+    digest build (while the tokens are still hot) and store the real URL.
+    Falls back to the community feed if resolution fails.
+    """
+    if not url:
+        return COMMUNITY_FALLBACK_URL
+    if "link.skool.com" not in url:
+        return url
+    try:
+        resp = requests.get(
+            url,
+            allow_redirects=False,
+            timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"},
+        )
+        location = resp.headers.get("Location", "")
+        # Follow one extra hop if Skool gives us another redirect
+        if location and "link.skool.com" in location:
+            resp2 = requests.get(location, allow_redirects=False, timeout=timeout)
+            location = resp2.headers.get("Location", location)
+        if location and "skool.com" in location and "/about" not in location:
+            return location
+    except Exception:  # noqa: BLE001
+        pass
+    return COMMUNITY_FALLBACK_URL
+
+
+def _resolve_all_urls(items: list[SkoolItem]) -> None:
+    """In-place: resolve every item's thread_url in parallel."""
+    if not items:
+        return
+    urls_to_resolve = [
+        (i, it.thread_url) for i, it in enumerate(items)
+        if it.thread_url and "link.skool.com" in it.thread_url
+    ]
+    if not urls_to_resolve:
+        return
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda pair: (pair[0], _resolve_skool_url(pair[1])), urls_to_resolve))
+    for idx, resolved in results:
+        items[idx].thread_url = resolved
+
+
+def parse_all(payloads: Iterable[dict], resolve_urls: bool = True) -> list[SkoolItem]:
     items: list[SkoolItem] = []
     for p in payloads:
         try:
@@ -374,9 +424,11 @@ def parse_all(payloads: Iterable[dict]) -> list[SkoolItem]:
                 author="(parse error)",
                 subject=p.get("subject", ""),
                 body=f"[parse error: {e}] " + (p.get("snippet") or "")[:300],
-                thread_url="https://www.skool.com/ai-automation-society-plus",
+                thread_url=COMMUNITY_FALLBACK_URL,
                 received_at=p.get("date", ""),
                 message_id=p.get("id", ""),
                 raw_snippet=p.get("snippet", "") or "",
             ))
+    if resolve_urls:
+        _resolve_all_urls(items)
     return items

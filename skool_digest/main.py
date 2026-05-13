@@ -18,7 +18,7 @@ from pathlib import Path
 from .gmail_fetch import fetch_messages, extract_payload, build_query
 from .email_parser import parse_all, SkoolItem
 from .ai_drafter import draft_all
-from .digest_builder import render_html, send_via_sendgrid
+from .digest_builder import render_html, render_dashboard, send_via_sendgrid
 
 
 def _load_env_file(path: Path) -> None:
@@ -97,6 +97,15 @@ def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = 
     # Preserve overflow as "draftless" entries so the +N footer in render_html is accurate
     drafts_full = drafts + [(it, "") for it in items_overflow]
     html_body = render_html(drafts_full)
+    dashboard_html = render_dashboard(drafts)  # only drafted items get a dashboard card
+
+    # Always save the dashboard to disk so the cloud workflow can publish it to Pages
+    here = Path(__file__).resolve().parent.parent
+    docs_dir = here / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    dashboard_path = docs_dir / "index.html"
+    dashboard_path.write_text(dashboard_html)
+    print(f"[digest] dashboard written to {dashboard_path}")
 
     if dry_run:
         sys.stdout.write(html_body)
