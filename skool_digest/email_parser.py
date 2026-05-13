@@ -365,18 +365,39 @@ def parse(payload: dict) -> list[SkoolItem]:
     )]
 
 
+def _strip_ephemeral_tokens(url: str) -> str:
+    """Strip Skool's single-use email tracking params (msg, ca, sa, etc).
+
+    Skool resolves redirects to URLs like:
+      .../post-slug?p=<post-id>&msg=<single-use-token>&ca=<timestamp>
+    The msg and ca tokens are consumed on first view; clicking the URL again
+    bounces to /about. Strip them but keep ?p= (the canonical post id).
+    """
+    if "?" not in url:
+        return url
+    base, _, query = url.partition("?")
+    keep = []
+    for pair in query.split("&"):
+        if "=" not in pair:
+            continue
+        k = pair.split("=", 1)[0].lower()
+        if k == "p":  # canonical post id — keep
+            keep.append(pair)
+    return base + ("?" + "&".join(keep) if keep else "")
+
+
 def _resolve_skool_url(url: str, timeout: float = 4.0) -> str:
     """Follow link.skool.com redirects to capture the canonical post URL.
 
     Skool's tracking links bounce to the community '/about' page when opened
     outside the original email context, so we resolve them server-side during
-    digest build (while the tokens are still hot) and store the real URL.
-    Falls back to the community feed if resolution fails.
+    digest build (while the tokens are still hot) and store the canonical URL
+    with ephemeral single-use tokens stripped out.
     """
     if not url:
         return COMMUNITY_FALLBACK_URL
     if "link.skool.com" not in url:
-        return url
+        return _strip_ephemeral_tokens(url)
     try:
         resp = requests.get(
             url,
@@ -386,12 +407,11 @@ def _resolve_skool_url(url: str, timeout: float = 4.0) -> str:
                                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"},
         )
         location = resp.headers.get("Location", "")
-        # Follow one extra hop if Skool gives us another redirect
         if location and "link.skool.com" in location:
             resp2 = requests.get(location, allow_redirects=False, timeout=timeout)
             location = resp2.headers.get("Location", location)
         if location and "skool.com" in location and "/about" not in location:
-            return location
+            return _strip_ephemeral_tokens(location)
     except Exception:  # noqa: BLE001
         pass
     return COMMUNITY_FALLBACK_URL

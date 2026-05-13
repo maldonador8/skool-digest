@@ -107,13 +107,31 @@ def post_one(page, thread_url: str, reply_text: str, dry_run: bool = False) -> d
     box.click()
     _sleep(300, 900)
 
+    # CLEAR any existing text first — critical: prevents the previous draft from
+    # bleeding into this one if Skool persisted the box's contents.
+    try:
+        page.keyboard.press("ControlOrMeta+a")
+        _sleep(80, 180)
+        page.keyboard.press("Delete")
+        _sleep(150, 350)
+        # Belt-and-suspenders: zero it via the DOM if anything remains
+        handle = box.element_handle()
+        if handle:
+            page.evaluate("(el) => { el.innerHTML = ''; el.textContent = ''; }", handle)
+        _sleep(150, 300)
+    except Exception:
+        pass
+
+    # Re-click to make sure focus is still in the box after the clear gymnastics
+    box.click()
+    _sleep(200, 500)
+
     # Type char-by-char with per-key jitter
     page.keyboard.type(reply_text, delay=random.randint(55, 160))
     _sleep(900, 2200)
 
     if dry_run:
         print(f"[poster]    DRY RUN — typed but NOT clicking post")
-        # Press Escape to dismiss any open composer so we don't accidentally submit
         try:
             page.keyboard.press("Escape")
         except Exception:
@@ -130,6 +148,21 @@ def post_one(page, thread_url: str, reply_text: str, dry_run: bool = False) -> d
         return {"ok": False, "error": f"click failed: {e}", "url": thread_url}
 
     _sleep(2500, 4500)
+
+    # VERIFY the post actually submitted — Skool clears the box after a real post.
+    # If it still contains our text, the click hit the wrong button.
+    try:
+        remaining = (box.inner_text() or "").strip()
+        if remaining and reply_text[:40].strip() in remaining:
+            return {
+                "ok": False,
+                "error": "post did not clear box (probably wrong button) — manual cleanup needed",
+                "url": thread_url,
+                "stuck_text_preview": remaining[:120],
+            }
+    except Exception:
+        pass
+
     return {"ok": True, "url": thread_url}
 
 
