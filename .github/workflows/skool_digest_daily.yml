@@ -1,0 +1,41 @@
+name: skool_digest_daily
+
+# Daily 11:00 UTC (7:00 AM ET). Pulls last 24h of Skool notification emails
+# from the user's Gmail "Skool" label, drafts replies with Claude Haiku 4.5,
+# and emails the user an HTML digest via SendGrid.
+#
+# Nothing posts back to Skool — copy-paste only.
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  digest:
+    name: Send Skool morning digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SENDGRID_API_KEY:  ${{ secrets.SENDGRID_API_KEY }}
+      GMAIL_TOKEN_B64:   ${{ secrets.GMAIL_TOKEN_B64 }}
+      DIGEST_RECIPIENT:  ${{ secrets.DIGEST_RECIPIENT }}
+      FROM_EMAIL:        ${{ secrets.FROM_EMAIL }}
+      FROM_NAME:         ${{ secrets.FROM_NAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Skool Digest
+        run: python -m skool_digest.main

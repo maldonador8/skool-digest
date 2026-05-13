@@ -1,0 +1,119 @@
+"""Skool Community Daily Digest — CLI entrypoint.
+
+Usage:
+  python -m skool_digest.main                    # full run: fetch → draft → email
+  python -m skool_digest.main --dry-run          # print HTML to stdout, no SendGrid
+  python -m skool_digest.main --dry-run --no-ai  # parse only, skip Anthropic
+  python -m skool_digest.main --from-fixtures tests/fixtures/  # use .eml fixtures
+"""
+from __future__ import annotations
+
+import argparse
+import email
+import os
+import sys
+from email import policy
+from pathlib import Path
+
+from .gmail_fetch import fetch_messages, extract_payload
+from .email_parser import parse_all, SkoolItem
+from .ai_drafter import draft_all
+from .digest_builder import render_html, send_via_sendgrid
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip())
+
+
+def _payload_from_eml(p: Path) -> dict:
+    """Read a .eml file from disk and return the payload dict shape used by parser."""
+    msg = email.message_from_bytes(p.read_bytes(), policy=policy.default)
+    html_body, text_body = "", ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ct = part.get_content_type()
+            if ct == "text/html" and not html_body:
+                html_body = part.get_content()
+            elif ct == "text/plain" and not text_body:
+                text_body = part.get_content()
+    else:
+        if msg.get_content_type() == "text/html":
+            html_body = msg.get_content()
+        else:
+            text_body = msg.get_content()
+    return {
+        "id": p.stem,
+        "thread_id": p.stem,
+        "subject": msg.get("Subject", ""),
+        "from": msg.get("From", ""),
+        "date": msg.get("Date", ""),
+        "html": html_body or "",
+        "text": text_body or "",
+        "snippet": (text_body or "")[:200],
+    }
+
+
+def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = None) -> int:
+    # Pull payloads — either from Gmail or from local .eml fixtures
+    if fixtures_dir is not None:
+        eml_files = sorted(fixtures_dir.glob("*.eml"))
+        print(f"[digest] loading {len(eml_files)} fixtures from {fixtures_dir}")
+        payloads = [_payload_from_eml(p) for p in eml_files]
+    else:
+        print("[digest] fetching from Gmail …")
+        msgs = fetch_messages()
+        payloads = [extract_payload(m) for m in msgs]
+        print(f"[digest] fetched {len(payloads)} messages")
+
+    items = parse_all(payloads)
+    print(f"[digest] parsed {len(items)} actionable Skool items")
+
+    # Draft replies (or skip with --no-ai for fast parser-only debugging)
+    if no_ai:
+        drafts = [(it, "(--no-ai: no draft generated)") for it in items]
+    else:
+        print("[digest] drafting replies with Claude Haiku …")
+        drafts = draft_all(items)
+
+    html_body = render_html(drafts)
+
+    if dry_run:
+        sys.stdout.write(html_body)
+        sys.stdout.write("\n")
+        print(f"\n[digest] DRY RUN — {len(drafts)} item(s), would email "
+              f"{os.environ.get('DIGEST_RECIPIENT', 'rafael.maldonado.sr@gmail.com')}", file=sys.stderr)
+        return 0
+
+    ok = send_via_sendgrid(html_body, count=len(drafts))
+    return 0 if ok else 1
+
+
+def _cli() -> int:
+    parser = argparse.ArgumentParser(description="Skool Community Daily Digest")
+    parser.add_argument("--dry-run", action="store_true", help="Print HTML to stdout; don't send")
+    parser.add_argument("--no-ai", action="store_true", help="Skip AI drafting (parser-only mode)")
+    parser.add_argument("--from-fixtures", type=Path, default=None,
+                        help="Read .eml files from this dir instead of Gmail")
+    args = parser.parse_args()
+
+    # Load .env (parent dir, then agent root, then global Projects/.env)
+    here = Path(__file__).resolve().parent.parent
+    for env_path in (here / ".env", here.parent / ".env", here.parent.parent / ".env"):
+        _load_env_file(env_path)
+
+    return run(
+        dry_run=args.dry_run,
+        no_ai=args.no_ai,
+        fixtures_dir=args.from_fixtures,
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(_cli())
