@@ -16,6 +16,10 @@ Skool notifications  →  Gmail "Skool" label  →  GitHub Action (daily 11:00 U
 
 Nothing posts back to Skool. You open the thread link and paste the reply.
 
+![Dashboard demo](.github/assets/dashboard-demo.png)
+
+*Demo data shown above — not a real community.*
+
 ## One-time setup
 
 ### 1. Turn on Skool email notifications
