@@ -1,5 +1,7 @@
 # Skool Community Daily Digest
 
+![skool_digest_daily](https://github.com/maldonador8/skool-digest/actions/workflows/skool_digest_daily.yml/badge.svg)
+
 Email digest of new posts, comments, and replies in the **AI Automation Society Plus** Skool community, with AI-drafted replies pre-written for copy-paste.
 
 Runs daily 7am ET on GitHub Actions. No scraping — uses your own Gmail.
@@ -67,7 +69,7 @@ Push this folder to GitHub (e.g. `maldonador8/skool-digest`), then set repo secr
 | `ANTHROPIC_API_KEY` | from your `.env` |
 | `SENDGRID_API_KEY` | from your `.env` |
 | `GMAIL_TOKEN_B64` | the clipboard contents from step 3.5 |
-| `DIGEST_RECIPIENT` | `rafael.maldonado.sr@gmail.com` |
+| `DIGEST_RECIPIENT` | the email address that should receive the digest |
 | `FROM_EMAIL` | a verified SendGrid sender |
 | `FROM_NAME` | `Skool Digest` |
 

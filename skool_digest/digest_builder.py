@@ -274,12 +274,15 @@ document.querySelector('.chip[data-filter="__all__"]').classList.add('active');
 def send_via_sendgrid(html_body: str, count: int) -> bool:
     """POST the HTML digest to SendGrid. Returns True on 2xx."""
     sg_key = os.environ.get("SENDGRID_API_KEY")
-    to_email = os.environ.get("DIGEST_RECIPIENT", "rafael.maldonado.sr@gmail.com")
+    to_email = os.environ.get("DIGEST_RECIPIENT")
     from_email = os.environ.get("FROM_EMAIL", "digest@mitechllc.com")
     from_name = os.environ.get("FROM_NAME", "Skool Digest")
 
     if not sg_key:
         print("[digest] SENDGRID_API_KEY not set — skipping send")
+        return False
+    if not to_email:
+        print("[digest] DIGEST_RECIPIENT not set — skipping send")
         return False
 
     subject = f"[Skool] Morning Digest — {count} new item{'s' if count != 1 else ''}"
@@ -296,7 +299,7 @@ def send_via_sendgrid(html_body: str, count: int) -> bool:
         timeout=15,
     )
     if not (200 <= resp.status_code < 300):
-        print(f"[digest] SendGrid error {resp.status_code}: {resp.text[:300]}")
+        print(f"[digest] SendGrid error {resp.status_code}")
         return False
-    print(f"[digest] sent to {to_email}")
+    print("[digest] sent")
     return True

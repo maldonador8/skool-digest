@@ -133,8 +133,7 @@ def run(dry_run: bool = False, no_ai: bool = False, fixtures_dir: Path | None = 
     if dry_run:
         sys.stdout.write(html_body)
         sys.stdout.write("\n")
-        print(f"\n[digest] DRY RUN — {len(drafts)} item(s), would email "
-              f"{os.environ.get('DIGEST_RECIPIENT', 'rafael.maldonado.sr@gmail.com')}", file=sys.stderr)
+        print(f"\n[digest] DRY RUN — {len(drafts)} item(s), would send", file=sys.stderr)
         return 0
 
     ok = send_via_sendgrid(html_body, count=len(drafts))
